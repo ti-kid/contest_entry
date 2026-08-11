@@ -3,116 +3,29 @@
 
 #include <stdint.h>
 #include <string.h>
-#include <stdbool.h>
-/*
- * Modular exponentiation: result = base^exp mod n
- *
- * All values are big-endian. base and mod are modulus_len bytes wide.
- * modulus_len may be 1–512 (up to 4096-bit modulus).
- *
- * Special cases your implementation must handle:
- *   base = 0  =>  result = 0
- *   base = 1  =>  result = 1
- *   exp  = 0  =>  result = 1  (by convention)
- *   exp  = 1  =>  result = base mod n
- *
- * Choose ONE of the two forms below and declare it in this file.
- * The test harness will call whichever signature is declared here.
- * Remove or comment out the form you are not implementing.
- *
- * --------------------------------------------------------------------
- * Form 1 — fixed u24 exponent
- *
- * Use this if you only need to handle public exponents (e.g. 65537).
- * Covers RSA encrypt and signature verify.
- *
- * Parameters:
- *   result       — output buffer, modulus_len bytes (caller-allocated)
- *   exp          — exponent as a 24-bit integer (e.g. 65537)
- *   base         — base value, modulus_len bytes, 0 <= base < mod
- *   mod          — modulus, modulus_len bytes, must be odd and > 1
- *   modulus_len  — byte width of base, mod, and result
- * --------------------------------------------------------------------
- */
-void mod_in_place(uint8_t *a, const uint8_t *m, int len);
-void mul_lsb_trunc_be(
+#include <stdlib.h>
+
+void big_mult(
     const uint8_t *a_be,
     const uint8_t *b_be,
-    int len,
-    uint8_t *out_be   // N bytes, big-endian
-);
-
-void powmod(
-    uint8_t        *result,
-    const uint24_t  exp,
-    const uint8_t  *base,
-    const uint8_t  *mod,
-    uint16_t        modulus_len
-) {
-	uint24_t curr_exp = exp;
-	uint8_t *work_space = (uint8_t*)malloc(modulus_len*3);
-	uint8_t *a, *b, *c, *d;
-	a = work_space;
-	b = work_space + modulus_len;
-	c = work_space + modulus_len * 2;
-	d = result;
-	
-	memcpy(a, base, modulus_len);
-	memcpy(b, base, modulus_len);
-	memset(c, 0, modulus_len);
-	c[modulus_len-1] = 0;
-	memset(d, 0, modulus_len);
-	d[modulus_len-1] = 0;
-
-	for (int i = 0; i < 24; i++) {
-		if (((exp >> i) & 1) == 1) {
-			mul_lsb_trunc_be(a, d, modulus_len, c);
-			memcpy(d, c, modulus_len);
-		}
-		mul_lsb_trunc_be(a, b, modulus_len, c);
-		memcpy(a, c, modulus_len);
-		memcpy(b, c, modulus_len);
-	}
-	
-	mod_in_place(result, mod, modulus_len);
-	free(work_space);
-}
-
-void mul_lsb_trunc_be(
-    const uint8_t *a_be,
-    const uint8_t *b_be,
-    int len,
-    uint8_t *out_be
+    uint8_t *out_be,
+	int len
 ) {
 	memset(out_be, 0, len);
+	int idx_base = len - 1;
 
     for (int i = 0; i < len; i++) {
-        uint16_t carry = 0;
-		int max_j = len - i;
+        int carry = 0;
 
-        for (int j = 0; j < max_j; j++) {
+        for (int j = 0; j < (len-i); j++) {
 
-			int idx_a   = len - 1 - i;
-            int idx_b   = len - 1 - j;
-            int idx_out = len - 1 - (i + j);
-			
-			uint16_t prod = (uint16_t)a_be[idx_a] * (uint16_t)b_be[idx_b];
-            uint16_t sum  = (uint16_t)out_be[idx_out] + prod + carry;
-            
-			out_be[idx_out] = (uint8_t)(sum & 0xFF);
-            carry         = sum >> 8;
+			carry += (uint16_t)a_be[idx_base-i] * (uint16_t)b_be[idx_base-j] + out_be[idx_base-(i+j)];
+			out_be[idx_base-(i+j)] = (uint8_t)(carry & 0xFF);
+            carry = carry >> 8;
         }
     }
 }
-#include <stdint.h>
-#include <stdbool.h>
-#include <stdlib.h>
-#include <string.h>
 
-/**
- * Compares two big-endian byte arrays of length `len`.
- * Returns true if `a` >= `b`, false otherwise.
- */
 static bool ge_be(const uint8_t *a, const uint8_t *b, int len) {
     for (int i = 0; i < len; i++) {
         if (a[i] > b[i]) return true;
@@ -181,32 +94,39 @@ void mod_in_place(uint8_t *a, const uint8_t *m, int len) {
     // Free dynamically allocated buffer to prevent memory leaks
     free(rem);
 }
-/*
- * --------------------------------------------------------------------
- * Form 2 — variable-length exponent buffer (BONUS — +4 points)
- *
- * Use this if you want to support full-width private exponents.
- * Passing all full-width exponent test vectors with this form also
- * covers RSA decrypt and sign operations.
- *
- * Parameters:
- *   result       — output buffer, modulus_len bytes (caller-allocated)
- *   exp          — exponent, exp_len bytes, big-endian
- *   exp_len      — byte width of the exponent (1–512)
- *   base         — base value, modulus_len bytes, 0 <= base < mod
- *   mod          — modulus, modulus_len bytes, must be odd and > 1
- *   modulus_len  — byte width of base, mod, and result
- * --------------------------------------------------------------------
- */
-/*
-void powmod(
-    uint8_t        *result,
-    const uint8_t  *exp,
-    uint16_t        exp_len,
-    const uint8_t  *base,
-    const uint8_t  *mod,
-    uint16_t        modulus_len
-);
-*/
 
+void powmod(
+		uint8_t			*result,
+		const uint24_t	exp,
+		const uint8_t	*base,
+		const uint8_t	*mod,
+		uint16_t		modulus_len
+) {
+	uint8_t *workspace, *a, *b, *c, *d;
+
+	workspace = (uint8_t*)malloc(modulus_len*3);
+	a = workspace;
+	b = workspace + modulus_len;
+	c = b + modulus_len;
+	d = result;
+
+	memcpy(a, base, modulus_len);
+	memcpy(b, base, modulus_len);
+	memset(d, 0, modulus_len);
+	d[modulus_len - 1] = 0;  //I know seems unnecesarry , this is js to prove a point
+
+	for (int i = 0; i < 24; i++) {
+		if (((exp >> i) & 1) == 1) {
+			big_mult(a, d, c, modulus_len);
+			memcpy(d, c, modulus_len);
+		}
+		big_mult(a, b, c, modulus_len);
+		memcpy(a, c, modulus_len);
+		memcpy(b, c, modulus_len);
+		
+	}
+	
+	mod_in_place(d, mod, modulus_len);
+	free(workspace);
+}
 #endif /* CONTEST_POWMOD_H */
